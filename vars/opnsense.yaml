@@ -1,0 +1,10 @@
+opnsense_host: "OPNSENSE_IP"
+opnsense_api_key: "API_KEY"
+opnsense_api_secret: "API_SECRET"
+
+module_defaults:
+  group/ansibleguy.opnsense.all:
+    firewall: "{{ opnsense_host }}"
+    api_key: "{{ opnsense_api_key }}"
+    api_port: 444 # Default is 443. Change to match what you have configured
+    api_secret: "{{ opnsense_api_secret }}"

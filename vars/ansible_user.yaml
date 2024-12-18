@@ -1,0 +1,4 @@
+ansible_user_name: "USERNAME" 
+ansible_user_password: "PASSWORD"
+ansible_user_ssh_key: |
+  ssh-rsa abc123= USERNAME@EXAMPLE

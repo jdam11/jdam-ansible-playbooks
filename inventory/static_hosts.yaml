@@ -1,0 +1,37 @@
+all:
+  children:
+    proxmox_all_lxc: {}
+    proxmox_all_qemu: {}
+    proxmox_all_running: {}
+    proxmox_all_stopped: {}
+    proxmox_nodes:
+      hosts:
+        pve10:
+          ansible_host: 192.168.1.10
+        pve11:
+          ansible_host: 192.168.1.11
+        pve12:
+          ansible_host: 192.168.1.12
+      vars:
+        ansible_user: root
+      hosts:
+        dns1: # This is the hostname of the VM
+          ansible_host: 192.168.1.20 # This is the IP address of the VM
+          deploy_node: pve20 # This is the Proxmox node that the VM will be deployed to (This is the same as the hostname in the inventory above)
+          deploy_gw: 192.168.1.1 # This is the gateway that the VM will use
+          deploy_dns: "192.168.1.10,192.168.1.11" # This is the DNS server that the VM will use
+          deploy_disk_size: 120 # This is the disk size of the VM in GB
+          deploy_storage_pool: "tn02a-lambo" # This is the storage pool that the VM will be deployed to. This is the same as the storage pool name in Proxmox
+          deploy_vmid: 4012 # This is the VM ID that the VM will be assigned
+          deploy_vlan: "4" # This is the VLAN that the VM will be deployed to
+          deploy_memory: 2048 # This is the memory size of the VM in MB
+          deploy_os: "{{ debian }}" # This is the OS that the VM will be deployed with (This is a variable that is defined in the vars section below)
+          deploy_cores: 2 # This is the number of CPU cores that the VM will have
+          deploy_tags: "tag_create_lxc,docker,tag2,tag3" # These are the tags that will be assigned to the VM in the Proxmox UI. The tag_create_lxc is used to create this LXC in the proxmox-playbooks/deployLXC.yaml playbook.
+      vars:
+      # These are the LXC templates you should have downloaded from the Proxmox UI on each host. Names should match what you see in the Proxmox UI. We define them here so that we can use them in the deploy_os variable above for easier deployment.
+        alma: "almalinux-9-default_20240911_amd64.tar.xz" # alma
+        debian: "debian-12-standard_12.2-1_amd64.tar.zst" # debian
+        ubuntu: "ubuntu-24.04-standard_24.04-2_amd64.tar.zst" # ubuntu
+        deploy_domain: "example.com" # This is the domain that the VM will be deployed to
+        ansible_user: root # This is the user that Ansible will use to connect to the Proxmox host and initial LXC once deployed. Ansible user will be created later but this should be root for now.

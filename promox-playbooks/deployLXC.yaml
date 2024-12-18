@@ -1,0 +1,230 @@
+---
+- name: Proxmox LXC Container Deployment
+  hosts: tag_create_lxc # This is the group that the playbook will run against. This group is defined in the static_hosts.yaml file.
+  gather_facts: no
+  vars:
+  # Assiging variables from the inventory file and var files to their correct variables for this playbook.
+    ostemplate: "{{ deploy_os }}"
+    storage_pool: "{{ deploy_storage_pool }}"
+    proxmox_node: "{{ deploy_node }}"
+    vmid: "{{ deploy_vmid }}"
+    hostname: "{{ inventory_hostname }}"
+    ip_address: "{{ ansible_host }}/24"
+    gateway: "{{ deploy_gw }}"
+    dns: "{{ deploy_dns }}"
+    disk_size: "{{ deploy_disk_size }}"
+    vlan: "{{ deploy_vlan }}"
+    memory: "{{ deploy_memory }}"
+    cores: "{{ deploy_cores }}"
+    tags: "{{ deploy_tags }}"
+    domain: "{{ deploy_domain }}"
+
+  vars_files:
+  # Including the var files that contain the variables for this playbook. These files are located in the vars directory.
+    - ../vars/ansible_user.yaml
+    - ../vars/opnsense.yaml
+    - ../vars/proxmox.yaml
+    - ../vars/pub_key.yaml
+
+  tasks:
+  # Deploy LXC container
+    - name: Create LXC container on Proxmox
+      community.general.proxmox:
+        api_user: "{{ proxmox_user }}"
+        api_password: "{{ proxmox_password }}"
+        api_host: "{{ proxmox_host }}"
+        node: "{{ proxmox_node }}"
+        vmid: "{{ vmid }}"
+        ostemplate: "tn01a-lambo:vztmpl/{{ ostemplate }}"
+        disk: "{{ storage_pool }}:{{ disk_size }}"
+        hostname: "{{ hostname }}"
+        password: "{{ password }}"
+        netif: 
+          net0: "name=eth0,bridge=vmbr0,gw={{ gateway }},ip={{ ip_address }},tag={{ vlan }}"
+        nameserver: "{{ dns }}"
+        timeout: 300
+        swap: 0
+        memory: "{{ memory }}"
+        cores: "{{ cores }}"
+        onboot: true
+        pubkey: "{{ pubkey }}"
+        state: present
+        features: nesting=1
+        unprivileged: true
+        tags: "{{ tags }}"
+        searchdomain: "{{ deploy_domain }}"
+      delegate_to: localhost
+      register: lxc_create
+
+    # Start the LXC container
+    - name: Start LXC container
+      community.general.proxmox:
+        api_user: "{{ proxmox_user }}"
+        api_password: "{{ proxmox_password }}"
+        api_host: "{{ proxmox_host }}"
+        node: "{{ proxmox_node }}"
+        vmid: "{{ vmid }}"
+        state: started
+      when: lxc_create.changed
+      delegate_to: localhost
+
+    # Wait for the LXC container to become available
+    - name: Wait for the LXC container to become available (port 22 for SSH)
+      wait_for:
+        port: 22
+        host: "{{ ansible_host }}"
+        timeout: 300
+        state: started
+      delegate_to: localhost
+
+    # Create Ansible User
+    - name: Gather facts about the host
+      setup:
+
+    # Update and upgrade packages
+    - name: Update and upgrade packages for Debian/Ubuntu
+      ansible.builtin.apt:
+        update_cache: yes
+        upgrade: full  
+        autoremove: yes 
+      when: ansible_facts['os_family'] == "Debian"
+      register: step_upgrade_packages_debian
+
+    # Update and upgrade packages
+    - name: Update and upgrade packages for AlmaLinux/RedHat/CentOS
+      ansible.builtin.yum:
+        name: '*'
+        state: latest
+      when: ansible_facts['os_family'] == "RedHat"
+      register: step_upgrade_packages_redhat
+
+    # Clean up package cache for Debian/Ubuntu
+    - name: Clean up package cache for AlmaLinux/RedHat/CentOS
+      ansible.builtin.yum:
+        name: '*'
+        state: latest
+        autoclean: yes
+      when: ansible_facts['os_family'] == "RedHat"
+      when: step_upgrade_packages_redhat.changed
+
+    # Clean up package cache for Debian/Ubuntu
+    - name: Ensure sudo is installed (for Ubuntu/Debian)
+      apt:
+        name: sudo
+        state: present
+      when: ansible_os_family == "Debian"
+    
+    # Clean up package cache for AlmaLinux/RedHat/CentOS
+    - name: Ensure sudo is installed (for RedHat/CentOS)
+      yum:
+        name: sudo
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    # Add the ansible_user to the sudo group
+    - name: Ensure the user is added to the sudo group (optional)
+      user:
+        name: "{{ ansible_user }}"
+        groups: sudo
+        append: yes
+        state: present
+      when: ansible_os_family == "Debian"
+    
+    # Add the ansible_user to the wheel group
+    - name: Ensure the user is added to the wheel group (for CentOS/RedHat, optional)
+      user:
+        name: "{{ ansible_user }}"
+        groups: wheel
+        append: yes
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    # Create the ansible user
+    - name: Create the ansible user
+      ansible.builtin.user:
+        name: "{{ ansible_user_name }}"
+        password: "{{ ansible_user_password | password_hash('sha512') }}"
+        state: present
+        groups: sudo
+        append: yes
+        shell: /bin/bash
+      register: step_ansible_user_created
+
+    # Ensure the ansible user has full sudo access
+    - name: Allow ansible user full sudo access
+      ansible.builtin.copy:
+        dest: "/etc/sudoers.d/{{ ansible_user_name }}"
+        content: "{{ ansible_user_name }} ALL=(ALL) NOPASSWD:ALL"
+        mode: '0440'
+        owner: root
+        group: root
+      when: step_ansible_user_created.changed
+
+    # Set up SSH authorized key directory for ansible user
+    - name: Set up SSH authorized key directory for ansible user
+      ansible.builtin.file:
+        path: "/home/{{ ansible_user_name }}/.ssh"
+        state: directory
+        mode: '0700'
+        owner: "{{ ansible_user_name }}"
+        group: "{{ ansible_user_name }}"
+      when: step_ansible_user_created.changed
+
+    # Upload the authorized key for ansible user
+    - name: Upload the authorized key for ansible user
+      ansible.builtin.copy:
+        dest: "/home/{{ ansible_user_name }}/.ssh/authorized_keys"
+        content: "{{ ansible_user_ssh_key }}"
+        mode: '0600'
+        owner: "{{ ansible_user_name }}"
+        group: "{{ ansible_user_name }}"
+
+    # Ensure correct permissions on the home directory
+    - name: Ensure correct permissions on the home directory
+      ansible.builtin.file:
+        path: "/home/{{ ansible_user_name }}"
+        state: directory
+        owner: "{{ ansible_user_name }}"
+        group: "{{ ansible_user_name }}"
+        mode: '0755'
+      when: step_ansible_user_created.changed
+
+    - name: Refresh Ansible Inventory
+      meta: refresh_inventory
+
+# Add Unbound DNS entry
+    # List existing DNS host overrides
+    - name: List existing DNS host overrides
+      ansibleguy.opnsense.list:
+        target: 'unbound_host'
+        firewall: "{{ opnsense_host }}"
+        api_key: "{{ opnsense_api_key }}"
+        api_secret: "{{ opnsense_api_secret }}"
+        api_port: 444
+        ssl_verify: no
+      register: existing_entries
+      delegate_to: localhost
+    
+    # Filter DNS entries matching hostname and domain
+    - name: Filter DNS entries matching hostname and domain
+      set_fact:
+        matching_dns_entries: "{{ existing_entries.data 
+                          | selectattr('domain', '==', inventory_hostname ~ '.' ~ deploy_domain) 
+                          | list }}"
+    
+    # Add or update Unbound DNS host override if necessary
+    - name: Add or update Unbound DNS host override if necessary
+      ansibleguy.opnsense.unbound_host:
+        firewall: "{{ opnsense_host }}"
+        api_key: "{{ opnsense_api_key }}"
+        api_secret: "{{ opnsense_api_secret }}"
+        api_port: 444
+        host: "*"
+        domain: "{{ inventory_hostname }}.{{ deploy_domain }}"
+        value: "{{ ip_address | regex_replace('/.*', '') }}"
+        enabled: true
+        ssl_verify: no
+        state: present
+      when: matching_dns_entries | length == 0
+      delegate_to: localhost
+      throttle: 1

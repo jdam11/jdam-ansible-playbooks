@@ -1,0 +1,22 @@
+# This is the inventory file for the Proxmox hosts and VMs. This file is used to define the hosts and groups that Ansible will interact with. List all proxmox hosts that will be managed by Ansible in this file.
+
+plugin: community.general.proxmox
+url: https://proxmox_host_ip:8006
+user: root@pam # Ensure to use a user with the correct permissions
+password: 'PASSWORD'
+validate_certs: false # Set to true if you want to validate the SSL certificate
+want_facts: true
+
+
+# This is used to assign the host to a group based on the tags assigned to the VM
+# The tags are assigned to the VM in the Proxmox UI
+# The tags are then parsed and assigned to the host in the inventory as groups the host is a part of
+# Tags should be in the format of "tag_groupname"
+keyed_groups:
+  - key: proxmox_tags_parsed
+    prefix: "tag"
+    separator: "_"
+    strict: true
+
+compose:
+  ansible_host: (proxmox_agent_interfaces[1]['ip-addresses'][0] | default(proxmox_net0['ip'])).split('/')[0]

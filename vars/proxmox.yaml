@@ -1,0 +1,4 @@
+proxmox_user: "root@pam" # Ensure to use a user with the correct permissions
+proxmox_password: "PROXMOX_PASSWORD" # Ensure to use a user with the correct permissions
+proxmox_host: "192.168.1.10"
+password: "PROXMOX_PASSWORD" # Not sure why but this is needed for the proxmox module to work? same password as above
